@@ -1119,15 +1119,6 @@ Handle g_hNoclipTimer[MAXPLAYERS + 1];
 bool g_bNoclipLastSafeValid[MAXPLAYERS + 1];
 float g_fNoclipLastSafeOrigin[MAXPLAYERS + 1][3];
 
-char g_sPhoenixPrimaryWeapon[MAXPLAYERS + 1][64];
-char g_sPhoenixSecondaryWeapon[MAXPLAYERS + 1][64];
-int g_iPhoenixGrenadeCount[MAXPLAYERS + 1][RSP_GRENADE_TYPE_COUNT];
-int g_iPhoenixArmor[MAXPLAYERS + 1];
-bool g_bPhoenixHelmet[MAXPLAYERS + 1];
-bool g_bPhoenixDefuser[MAXPLAYERS + 1];
-bool g_bPhoenixNightVision[MAXPLAYERS + 1];
-bool g_bPhoenixLoadoutValid[MAXPLAYERS + 1];
-int g_iPhoenixLoadoutRound[MAXPLAYERS + 1];
 
 bool g_bPowerRespawnPending[MAXPLAYERS + 1];
 int g_iPowerRespawnRound[MAXPLAYERS + 1];
@@ -2634,7 +2625,6 @@ void ResetClientData(int client)
     g_fNoclipLastSafeOrigin[client][2] = 0.0;
     g_bPhoenixUsedThisRound[client] = false;
     g_bResurrectionUsedThisRound[client] = false;
-    ClearPhoenixLoadoutSnapshot(client);
     g_bPowerRespawnPending[client] = false;
     g_iPowerRespawnRound[client] = 0;
     g_iPowerRespawnAttempts[client] = 0;
@@ -3383,7 +3373,6 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
         g_bZombieUsedThisRound[client] = false;
         g_bPhoenixUsedThisRound[client] = false;
         g_bResurrectionUsedThisRound[client] = false;
-        ClearPhoenixLoadoutSnapshot(client);
         g_fVampirismHealRemainder[client] = 0.0;
         g_fThornsReflectRemainder[client] = 0.0;
         g_bThornsDamagePending[client] = false;
@@ -4695,7 +4684,6 @@ void AssignPowerToClient(int client, RSPPower power, bool allowOutsideRound = fa
     // world entities (turrets/mines/gifts/projectiles) keep their own lifecycle.
     RSPPower previousPower = g_iPower[client];
     ResetClientPower(client, true, true, true);
-    ClearPhoenixLoadoutSnapshot(client);
     g_bHostPowerGrantedOutsideRound[client] = allowOutsideRound && !g_bRoundReady;
 
     g_iAssignedRound[client] = g_iRoundSerial;
@@ -7414,7 +7402,6 @@ Action HandleRSPTargetSelectionChat(int client, int selectionNumber)
         {
             PrintRSPTargetEffectNotice(target, client, RSP_NOTICE_THIEF);
             ResetClientPower(target, true);
-            ClearPhoenixLoadoutSnapshot(target);
             g_iAssignedRound[target] = g_iRoundSerial;
             if (stolenPower == RSP_Ghost)
             {
@@ -14898,120 +14885,6 @@ public Action Timer_RemoveExplosion(Handle timer, any entityRef)
     return Plugin_Stop;
 }
 
-void ClearPhoenixLoadoutSnapshot(int client)
-{
-    if (client < 1 || client > MaxClients)
-    {
-        return;
-    }
-
-    g_sPhoenixPrimaryWeapon[client][0] = '\0';
-    g_sPhoenixSecondaryWeapon[client][0] = '\0';
-    for (int grenade = 0; grenade < RSP_GRENADE_TYPE_COUNT; grenade++)
-    {
-        g_iPhoenixGrenadeCount[client][grenade] = 0;
-    }
-    g_iPhoenixArmor[client] = 0;
-    g_bPhoenixHelmet[client] = false;
-    g_bPhoenixDefuser[client] = false;
-    g_bPhoenixNightVision[client] = false;
-    g_bPhoenixLoadoutValid[client] = false;
-    g_iPhoenixLoadoutRound[client] = 0;
-}
-
-void SnapshotPhoenixWeapon(int client, int weapon, bool primary)
-{
-    if (client < 1 || client > MaxClients || weapon <= MaxClients || !IsValidEntity(weapon))
-    {
-        return;
-    }
-
-    char classname[64];
-    GetEntityClassname(weapon, classname, sizeof(classname));
-    if (StrEqual(classname, "weapon_c4", false))
-    {
-        return;
-    }
-
-    if (primary)
-    {
-        strcopy(g_sPhoenixPrimaryWeapon[client], sizeof(g_sPhoenixPrimaryWeapon[]), classname);
-    }
-    else
-    {
-        strcopy(g_sPhoenixSecondaryWeapon[client], sizeof(g_sPhoenixSecondaryWeapon[]), classname);
-    }
-}
-
-void SnapshotPhoenixLoadout(int client)
-{
-    if (client < 1 || client > MaxClients || !IsClientInGame(client) || !IsPlayerAlive(client) ||
-        g_iPower[client] != RSP_Phoenix || g_iAssignedRound[client] != g_iRoundSerial)
-    {
-        return;
-    }
-
-    ClearPhoenixLoadoutSnapshot(client);
-
-    int primary = GetPlayerWeaponSlot(client, 0);
-    SnapshotPhoenixWeapon(client, primary, true);
-
-    int secondary = GetPlayerWeaponSlot(client, 1);
-    SnapshotPhoenixWeapon(client, secondary, false);
-
-    if (HasEntProp(client, Prop_Send, "m_ArmorValue"))
-    {
-        g_iPhoenixArmor[client] = GetEntProp(client, Prop_Send, "m_ArmorValue");
-    }
-    if (HasEntProp(client, Prop_Send, "m_bHasHelmet"))
-    {
-        g_bPhoenixHelmet[client] = GetEntProp(client, Prop_Send, "m_bHasHelmet") != 0;
-    }
-    if (HasEntProp(client, Prop_Send, "m_bHasDefuser"))
-    {
-        g_bPhoenixDefuser[client] = GetEntProp(client, Prop_Send, "m_bHasDefuser") != 0;
-    }
-    if (HasEntProp(client, Prop_Send, "m_bHasNightVision"))
-    {
-        g_bPhoenixNightVision[client] = GetEntProp(client, Prop_Send, "m_bHasNightVision") != 0;
-    }
-
-    int inventorySize = GetEntPropArraySize(client, Prop_Send, "m_hMyWeapons");
-    for (int index = 0; index < inventorySize; index++)
-    {
-        int item = GetEntPropEnt(client, Prop_Send, "m_hMyWeapons", index);
-        if (item <= MaxClients || !IsValidEntity(item))
-        {
-            continue;
-        }
-
-        char classname[64];
-        GetEntityClassname(item, classname, sizeof(classname));
-        if (StrEqual(classname, "weapon_hegrenade", false))
-        {
-            g_iPhoenixGrenadeCount[client][0]++;
-        }
-        else if (StrEqual(classname, "weapon_flashbang", false))
-        {
-            g_iPhoenixGrenadeCount[client][1]++;
-        }
-        else if (StrEqual(classname, "weapon_smokegrenade", false))
-        {
-            g_iPhoenixGrenadeCount[client][2]++;
-        }
-    }
-
-    g_iPhoenixLoadoutRound[client] = g_iRoundSerial;
-    g_bPhoenixLoadoutValid[client] = true;
-}
-
-bool IsPhoenixRestorableGrenade(const char[] classname)
-{
-    return StrEqual(classname, "weapon_hegrenade", false) ||
-        StrEqual(classname, "weapon_flashbang", false) ||
-        StrEqual(classname, "weapon_smokegrenade", false);
-}
-
 void RemovePhoenixWeaponEntity(int client, int weapon)
 {
     if (weapon <= MaxClients || !IsValidEntity(weapon))
@@ -15021,41 +14894,6 @@ void RemovePhoenixWeaponEntity(int client, int weapon)
     if (RemovePlayerItem(client, weapon) && IsValidEntity(weapon))
     {
         RemoveEntity(weapon);
-    }
-}
-
-void RestorePhoenixGunSlot(int client, int slot, const char[] savedClass, bool removeIfSnapshotEmpty)
-{
-    int current = GetPlayerWeaponSlot(client, slot);
-    if (savedClass[0] == '\0')
-    {
-        if (removeIfSnapshotEmpty)
-        {
-            RemovePhoenixWeaponEntity(client, current);
-        }
-        return;
-    }
-
-    if (current > MaxClients && IsValidEntity(current))
-    {
-        char currentClass[64];
-        GetEntityClassname(current, currentClass, sizeof(currentClass));
-        if (StrEqual(currentClass, savedClass, false))
-        {
-            // Keep the normally granted weapon if its class already matches.
-            // Phoenix never restores the saved magazine or reserve-ammo count.
-            SetRandomWeaponShotgunReserveAmmo(client, current);
-            return;
-        }
-        RemovePhoenixWeaponEntity(client, current);
-    }
-
-    int restored = GivePlayerItem(client, savedClass);
-    if (restored > MaxClients && IsValidEntity(restored))
-    {
-        // GivePlayerItem supplies the weapon's normal full magazine. As in Random
-        // Weapon, explicitly restore CS:S's 32 reserve shells for M3/XM1014.
-        SetRandomWeaponShotgunReserveAmmo(client, restored);
     }
 }
 
@@ -15114,7 +14952,6 @@ void RestorePhoenixLoadout(int client)
         SetEntProp(client, Prop_Send, "m_bHasDefuser",
             (team == CS_TEAM_CT && IsPhoenixBombObjectiveMap()) ? 1 : 0);
 
-    ClearPhoenixLoadoutSnapshot(client);
 }
 
 void Frame_RestorePhoenixLoadout(any userid)

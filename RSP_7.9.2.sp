@@ -84,8 +84,6 @@ native int CS2Mag_TransferReserveMagazines(int sourceClient, int sourceWeapon, i
 #define RSP_CONCUSSION_CHANCE_MIN 15
 #define RSP_CONCUSSION_CHANCE_MAX 30
 #define RSP_CONCUSSION_FLASH_DURATION 3.0
-#define RSP_CONCUSSION_FLASH_JITTER_MIN 0.01
-#define RSP_CONCUSSION_FLASH_JITTER_MAX 0.10
 #define RSP_SPECTATOR_DURATION 5.0
 #define RSP_SPECTATOR_COOLDOWN 25.0
 #define RSP_BLOODLUST_HEAL 100
@@ -11404,6 +11402,30 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float move[
     }
 
     if (g_bEnabled && g_bSupportedMap && IsRSPPowerRuntimeActiveForClient(client) &&
+        IsPlayerAlive(client) && g_fFrozenUntil[client] > inputTime)
+    {
+        // Full freeze gate runs before gifts, ability input, weapon input, or movement
+        // processing so a frozen player cannot create misleading gameplay feedback.
+        if (g_bHookActive[client])
+            StopHook(client);
+
+        buttons &= IN_SCORE;
+        impulse = 0;
+        weapon = 0;
+        subtype = 0;
+        move[0] = 0.0;
+        move[1] = 0.0;
+        move[2] = 0.0;
+        g_bDoubleJumpWasDown[client] = false;
+        if (HasEntProp(client, Prop_Data, "m_vecVelocity"))
+        {
+            float frozenVelocity[3] = {0.0, 0.0, 0.0};
+            SetEntPropVector(client, Prop_Data, "m_vecVelocity", frozenVelocity);
+        }
+        return Plugin_Changed;
+    }
+
+    if (g_bEnabled && g_bSupportedMap && IsRSPPowerRuntimeActiveForClient(client) &&
         IsPlayerAlive(client))
     {
         // Keep a small rolling buffer for living players, not just current Anomaly owners.
@@ -11643,27 +11665,10 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float move[
         g_iDisorientOwnerUserId[client] = 0;
     }
 
-    if (g_fFrozenUntil[client] > commandTime)
-    {
-        // Full freeze: only the scoreboard is left available. Owned sounds and voice
-        // transmission are suppressed by the shared temporary-mute helpers.
-        buttons &= IN_SCORE;
-        impulse = 0;
-        weapon = 0;
-        subtype = 0;
-        move[0] = 0.0;
-        move[1] = 0.0;
-        move[2] = 0.0;
-        if (HasEntProp(client, Prop_Data, "m_vecVelocity"))
-        {
-            float zeroVelocity[3] = {0.0, 0.0, 0.0};
-            SetEntPropVector(client, Prop_Data, "m_vecVelocity", zeroVelocity);
-        }
-        return Plugin_Changed;
-    }
-    else if (g_fFrozenUntil[client] != 0.0)
+    if (g_fFrozenUntil[client] != 0.0 && g_fFrozenUntil[client] <= commandTime)
     {
         g_fFrozenUntil[client] = 0.0;
+        UpdateRSPTemporaryVoiceMute(client);
         g_iCryoOwnerUserId[client] = 0;
     }
 
@@ -13936,8 +13941,7 @@ void ApplyConcussionFlash(int victim, int attacker)
     }
 
     float now = GetGameTime();
-    float duration = RSP_CONCUSSION_FLASH_DURATION +
-        GetRandomFloat(RSP_CONCUSSION_FLASH_JITTER_MIN, RSP_CONCUSSION_FLASH_JITTER_MAX);
+    float duration = RSP_CONCUSSION_FLASH_DURATION;
 
     // CS:S applies the flash fade to the same networked properties. Keep a stronger
     // overlapping flash instead of shortening it, and add a small duration delta so
@@ -13961,8 +13965,7 @@ void ApplyConcussionFlash(int victim, int attacker)
     {
         float remaining = currentStart + currentDuration - now;
         if (remaining > duration)
-            duration = remaining + GetRandomFloat(RSP_CONCUSSION_FLASH_JITTER_MIN,
-                RSP_CONCUSSION_FLASH_JITTER_MAX);
+            duration = remaining;
     }
 
     if (HasEntProp(victim, Prop_Send, "m_flFlashDuration"))
@@ -22447,7 +22450,7 @@ bool IsValidPlayingClient(int client)
 // 6.0.68: Removes the custom Tesla corpse replica/finalization path. Tesla deaths use the same native env_entity_dissolver system as before, with its fade timeline scaled to 4x; other RSP dissolve effects keep their existing 2x timeline. All gameplay/placement changes from 6.0.67 remain.
 // 6.0.67: Balances Inventor Tesla to 350 HP and a 15% headshot chance for every player target, including Juggernaut; Steel Head still blocks headshot damage. Visible hostile players take priority over enemy Teslas, which remain fallback targets. Makes buildable placement less restrictive on uneven ground and near nearby objects; sequences round-start notices as owner power, target list after 0.1 s, teammate roster after 0.2 s. Tesla dissolve used a hidden prop_ragdoll fallback to retain a corpse after the native effect.
 // 6.0.66: Centers the ambient point_tesla emitter on the exact X/Y antenna firing origin. Tesla dissolves use a longer native electrical effect; this version uses the native fade lifecycle without a custom corpse replica. Other dissolve causes are unchanged.
-// 7.9.2: Concussion displays the rolled 15-30% chance and applies the CS:S flash fade plus native distance-tier DSP deafening. Spectator blocks movement actions other than flight, chat/radio/voice and owned sounds; its 25-second cooldown starts after exit. Freezing Ammo blocks active inputs and suppresses owned sounds/voice. Grounder cancels only spammed grounded jump impulses. Demolition preserves synchronous HE ownership attribution and scales the projectile's engine damage/radius defaults by x1.5/x3 on the next frame. Heist drops the same primary/pistol entities beside the activator; fixes SDKHooks_DropWeapon void usage so successful drops are counted and cooldown is applied.
+// 7.9.2: Concussion displays the rolled 15-30% chance and applies a 3-second CS:S flash fade plus distance-tier DSP deafening. Spectator blocks gameplay actions, chat/radio/voice and owned sounds; its 25-second cooldown starts after exit. Freezing Ammo blocks all active inputs before gameplay side effects and suppresses owned sounds/voice. Grounder cancels spammed jump impulses and grounded micro-jitter. Demolition preserves synchronous HE ownership attribution and scales the projectile's engine damage/radius defaults by x1.5/x3 on the next frame. Heist drops the same primary/pistol entities beside the activator; fixes SDKHooks_DropWeapon void usage so successful drops are counted and cooldown is applied.
 // 6.0.65: Tesla-caused deaths used a very long native electrical dissolve timeline to try to keep the corpse for the whole round; this approach is replaced in 6.0.66/6.0.67 and 6.0.68 by a finite fade timeline.
 // 6.0.64: Improves Inventor Tesla combat: player armor is bypassed, player targets have a 15% headshot chance (50% against Juggernaut) with 4x headshot damage and headshot killfeed, body hits are blocked by Juggernaut, enemy Teslas target and damage one another without headshots, and Thorns reflects Tesla damage onto the attacking turret instead of its owner. Slightly thickens the zigzag beam and centers/raises the ambient Tesla arc.
 // 6.0.63: Removes Silenced Ammo and Silenced Steps from the selectable pool, power enum, names/descriptions, sound hooks, weapon-sound precache, and related helpers. No other power mechanics are intentionally changed.

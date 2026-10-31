@@ -1285,6 +1285,7 @@ bool g_bFlashProjectileLong[RSP_MAX_ENTITIES];
 int g_iFlashProjectileRound[RSP_MAX_ENTITIES];
 float g_fFlashProjectileSpawnTime[RSP_MAX_ENTITIES];
 int g_iHEProjectileOwnerUserId[RSP_MAX_ENTITIES];
+bool g_bHEProjectileDemolition[RSP_MAX_ENTITIES];
 int g_iHEProjectileTeam[RSP_MAX_ENTITIES];
 bool g_bHEProjectileExecutioner[RSP_MAX_ENTITIES];
 bool g_bHEProjectileEnder[RSP_MAX_ENTITIES];
@@ -1792,6 +1793,7 @@ public void OnEntityDestroyed(int entity)
         g_iFlashProjectileRound[entity] = 0;
         g_fFlashProjectileSpawnTime[entity] = 0.0;
         g_iHEProjectileOwnerUserId[entity] = 0;
+        g_bHEProjectileDemolition[entity] = false;
         g_iHEProjectileTeam[entity] = 0;
         g_bHEProjectileExecutioner[entity] = false;
         g_bHEProjectileEnder[entity] = false;
@@ -1854,6 +1856,7 @@ public void OnEntityCreated(int entity, const char[] classname)
     g_iFlashProjectileRound[entity] = 0;
     g_fFlashProjectileSpawnTime[entity] = 0.0;
     g_iHEProjectileOwnerUserId[entity] = 0;
+    g_bHEProjectileDemolition[entity] = false;
     g_iHEProjectileTeam[entity] = 0;
     g_bHEProjectileExecutioner[entity] = false;
         g_bHEProjectileEnder[entity] = false;
@@ -1933,7 +1936,9 @@ public void Hook_HEGrenadeProjectileSpawnPost(int entity)
     g_bHEProjectileEnder[entity] = g_iPower[owner] == RSP_EnderGrenade &&
         g_iAssignedRound[owner] == g_iRoundSerial;
 
-    if (g_iPower[owner] == RSP_Demolition && g_iAssignedRound[owner] == g_iRoundSerial)
+    g_bHEProjectileDemolition[entity] =
+        g_iPower[owner] == RSP_Demolition && g_iAssignedRound[owner] == g_iRoundSerial;
+    if (g_bHEProjectileDemolition[entity])
         RequestFrame(Frame_ApplyDemolitionToHEProjectile, EntIndexToEntRef(entity));
 
     g_iHEProjectileRound[entity] = g_iRoundSerial;
@@ -1946,15 +1951,7 @@ public void Frame_ApplyDemolitionToHEProjectile(any entityRef)
     if (entity <= MaxClients || entity >= RSP_MAX_ENTITIES || !IsValidEntity(entity))
         return;
 
-    int owner = -1;
-    if (HasEntProp(entity, Prop_Send, "m_hThrower"))
-        owner = GetEntPropEnt(entity, Prop_Send, "m_hThrower");
-    if ((owner < 1 || owner > MaxClients || !IsClientInGame(owner)) &&
-        HasEntProp(entity, Prop_Data, "m_hOwnerEntity"))
-        owner = GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity");
-
-    if (owner < 1 || owner > MaxClients || !IsClientInGame(owner) ||
-        g_iPower[owner] != RSP_Demolition || g_iAssignedRound[owner] != g_iRoundSerial)
+    if (!g_bHEProjectileDemolition[entity] || g_iHEProjectileRound[entity] != g_iRoundSerial)
         return;
 
     float damage = 0.0;
@@ -11538,7 +11535,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float move[
             {
                 float groundVelocity[3];
                 GetEntPropVector(client, Prop_Data, "m_vecVelocity", groundVelocity);
-                if (groundVelocity[2] > 0.0)
+                if (groundVelocity[2] != 0.0)
                 {
                     groundVelocity[2] = 0.0;
                     SetEntPropVector(client, Prop_Data, "m_vecVelocity", groundVelocity);
@@ -14650,6 +14647,7 @@ void ClearVisualTracking()
         g_iFlashProjectileRound[entity] = 0;
         g_fFlashProjectileSpawnTime[entity] = 0.0;
         g_iHEProjectileOwnerUserId[entity] = 0;
+        g_bHEProjectileDemolition[entity] = false;
         g_iHEProjectileTeam[entity] = 0;
         g_bHEProjectileExecutioner[entity] = false;
         g_bHEProjectileEnder[entity] = false;
@@ -22318,6 +22316,7 @@ void ClearFlashRecords()
         g_iFlashProjectileRound[entity] = 0;
         g_fFlashProjectileSpawnTime[entity] = 0.0;
         g_iHEProjectileOwnerUserId[entity] = 0;
+        g_bHEProjectileDemolition[entity] = false;
         g_iHEProjectileTeam[entity] = 0;
         g_bHEProjectileExecutioner[entity] = false;
         g_bHEProjectileEnder[entity] = false;

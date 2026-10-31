@@ -21487,24 +21487,24 @@ int StripWeaponsFromPlayer(int target, int owner)
         !IsPlayerAlive(target) || !IsPlayerAlive(owner))
         return 0;
 
-    float origin[3], angles[3], forward[3], right[3], up[3];
+    float origin[3], angles[3], forwardVec[3], right[3], up[3];
     float velocity[3] = {0.0, 0.0, 0.0};
     GetClientAbsOrigin(owner, origin);
     GetClientEyeAngles(owner, angles);
-    GetAngleVectors(angles, forward, right, up);
+    GetAngleVectors(angles, forwardVec, right, up);
 
-    forward[2] = 0.0;
+    forwardVec[2] = 0.0;
     right[2] = 0.0;
-    if (GetVectorLength(forward) < 0.01)
+    if (GetVectorLength(forwardVec) < 0.01)
     {
-        forward[0] = 1.0;
-        forward[1] = 0.0;
+        forwardVec[0] = 1.0;
+        forwardVec[1] = 0.0;
     }
-    NormalizeVector(forward, forward);
+    NormalizeVector(forwardVec, forwardVec);
     if (GetVectorLength(right) < 0.01)
     {
-        right[0] = -forward[1];
-        right[1] = forward[0];
+        right[0] = -forwardVec[1];
+        right[1] = forwardVec[0];
     }
     NormalizeVector(right, right);
 
@@ -21517,8 +21517,8 @@ int StripWeaponsFromPlayer(int target, int owner)
 
         float pos[3];
         float lateralOffset = (slot == 0) ? -56.0 : 56.0;
-        pos[0] = origin[0] + forward[0] * 24.0 + right[0] * lateralOffset;
-        pos[1] = origin[1] + forward[1] * 24.0 + right[1] * lateralOffset;
+        pos[0] = origin[0] + forwardVec[0] * 24.0 + right[0] * lateralOffset;
+        pos[1] = origin[1] + forwardVec[1] * 24.0 + right[1] * lateralOffset;
         pos[2] = origin[2] + 8.0;
 
         // SDKHooks_DropWeapon returns void. It drops this exact entity; it does not

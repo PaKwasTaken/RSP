@@ -1379,6 +1379,20 @@ public void OnPluginStart()
     AddCommandListener(Command_BlockSpectatorInput, "getout");
     AddCommandListener(Command_BlockSpectatorInput, "negative");
     AddCommandListener(Command_BlockSpectatorInput, "enemydown");
+    AddCommandListener(Command_BlockSpectatorInput, "buy");
+    AddCommandListener(Command_BlockSpectatorInput, "buyequip");
+    AddCommandListener(Command_BlockSpectatorInput, "autobuy");
+    AddCommandListener(Command_BlockSpectatorInput, "rebuy");
+    AddCommandListener(Command_BlockSpectatorInput, "buyammo1");
+    AddCommandListener(Command_BlockSpectatorInput, "buyammo2");
+    AddCommandListener(Command_BlockSpectatorInput, "chooseteam");
+    AddCommandListener(Command_BlockSpectatorInput, "jointeam");
+    AddCommandListener(Command_BlockSpectatorInput, "joinclass");
+    AddCommandListener(Command_BlockSpectatorInput, "menuselect");
+    AddCommandListener(Command_BlockSpectatorInput, "callvote");
+    AddCommandListener(Command_BlockSpectatorInput, "vote");
+    AddCommandListener(Command_BlockSpectatorInput, "voteyes");
+    AddCommandListener(Command_BlockSpectatorInput, "voteno");
     AddNormalSoundHook(Hook_RSPNormalSound);
     AddCommandListener(Command_BlockSpectatorInput, "drop");
     AddCommandListener(Command_BlockSpectatorInput, "nightvision");
@@ -1563,6 +1577,15 @@ public void OnMapEnd()
     for (int client = 1; client <= MaxClients; client++)
     {
         StopClientPistolRestoreTimer(client);
+        if (IsClientInGame(client))
+        {
+            g_fFrozenUntil[client] = 0.0;
+            UpdateRSPTemporaryVoiceMute(client);
+            if (g_fConcussionDspUntil[client] > 0.0)
+                ClientCommand(client, "dsp_player 0");
+        }
+        g_fConcussionDspUntil[client] = 0.0;
+        g_iConcussionDspEffect[client] = 0;
         // TIMER_FLAG_NO_MAPCHANGE cancels queued observer roster timers automatically.
         // Clear the debounce marker as well so it cannot survive onto the next map.
         g_bObserverRosterRefreshQueued[client] = false;
@@ -1892,15 +1915,6 @@ public void Hook_HEGrenadeProjectileSpawnPost(int entity)
     if (entity <= MaxClients || entity >= RSP_MAX_ENTITIES || !IsValidEntity(entity))
         return;
 
-    RequestFrame(Frame_ApplyHEGrenadeProjectileState, EntIndexToEntRef(entity));
-}
-
-public void Frame_ApplyHEGrenadeProjectileState(any entityRef)
-{
-    int entity = EntRefToEntIndex(entityRef);
-    if (entity <= MaxClients || entity >= RSP_MAX_ENTITIES || !IsValidEntity(entity))
-        return;
-
     int owner = -1;
     if (HasEntProp(entity, Prop_Send, "m_hThrower"))
         owner = GetEntPropEnt(entity, Prop_Send, "m_hThrower");
@@ -1920,53 +1934,77 @@ public void Frame_ApplyHEGrenadeProjectileState(any entityRef)
         g_iAssignedRound[owner] == g_iRoundSerial;
 
     if (g_iPower[owner] == RSP_Demolition && g_iAssignedRound[owner] == g_iRoundSerial)
-    {
-        float damage = 0.0;
-        float radius = 0.0;
-        bool hasDamage = false;
-        bool hasRadius = false;
-
-        if (HasEntProp(entity, Prop_Data, "m_flDamage"))
-        {
-            damage = GetEntPropFloat(entity, Prop_Data, "m_flDamage");
-            hasDamage = true;
-        }
-        else if (HasEntProp(entity, Prop_Send, "m_flDamage"))
-        {
-            damage = GetEntPropFloat(entity, Prop_Send, "m_flDamage");
-            hasDamage = true;
-        }
-
-        if (HasEntProp(entity, Prop_Data, "m_DmgRadius"))
-        {
-            radius = GetEntPropFloat(entity, Prop_Data, "m_DmgRadius");
-            hasRadius = true;
-        }
-        else if (HasEntProp(entity, Prop_Send, "m_DmgRadius"))
-        {
-            radius = GetEntPropFloat(entity, Prop_Send, "m_DmgRadius");
-            hasRadius = true;
-        }
-
-        if (hasDamage && damage > 0.0)
-        {
-            if (HasEntProp(entity, Prop_Data, "m_flDamage"))
-                SetEntPropFloat(entity, Prop_Data, "m_flDamage", damage * RSP_DEMOLITION_DAMAGE_MULTIPLIER);
-            else
-                SetEntPropFloat(entity, Prop_Send, "m_flDamage", damage * RSP_DEMOLITION_DAMAGE_MULTIPLIER);
-        }
-
-        if (hasRadius && radius > 0.0)
-        {
-            if (HasEntProp(entity, Prop_Data, "m_DmgRadius"))
-                SetEntPropFloat(entity, Prop_Data, "m_DmgRadius", radius * RSP_DEMOLITION_RADIUS_MULTIPLIER);
-            else
-                SetEntPropFloat(entity, Prop_Send, "m_DmgRadius", radius * RSP_DEMOLITION_RADIUS_MULTIPLIER);
-        }
-    }
+        RequestFrame(Frame_ApplyDemolitionToHEProjectile, EntIndexToEntRef(entity));
 
     g_iHEProjectileRound[entity] = g_iRoundSerial;
     g_fHEProjectileSpawnTime[entity] = GetGameTime();
+}
+
+public void Frame_ApplyDemolitionToHEProjectile(any entityRef)
+{
+    int entity = EntRefToEntIndex(entityRef);
+    if (entity <= MaxClients || entity >= RSP_MAX_ENTITIES || !IsValidEntity(entity))
+        return;
+
+    int owner = -1;
+    if (HasEntProp(entity, Prop_Send, "m_hThrower"))
+        owner = GetEntPropEnt(entity, Prop_Send, "m_hThrower");
+    if ((owner < 1 || owner > MaxClients || !IsClientInGame(owner)) &&
+        HasEntProp(entity, Prop_Data, "m_hOwnerEntity"))
+        owner = GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity");
+
+    if (owner < 1 || owner > MaxClients || !IsClientInGame(owner) ||
+        g_iPower[owner] != RSP_Demolition || g_iAssignedRound[owner] != g_iRoundSerial)
+        return;
+
+    float damage = 0.0;
+    float radius = 0.0;
+    bool hasDamage = false;
+    bool hasRadius = false;
+
+    if (HasEntProp(entity, Prop_Data, "m_flDamage"))
+    {
+        damage = GetEntPropFloat(entity, Prop_Data, "m_flDamage");
+        hasDamage = true;
+    }
+    else if (HasEntProp(entity, Prop_Send, "m_flDamage"))
+    {
+        damage = GetEntPropFloat(entity, Prop_Send, "m_flDamage");
+        hasDamage = true;
+    }
+
+    if (HasEntProp(entity, Prop_Data, "m_DmgRadius"))
+    {
+        radius = GetEntPropFloat(entity, Prop_Data, "m_DmgRadius");
+        hasRadius = true;
+    }
+    else if (HasEntProp(entity, Prop_Send, "m_DmgRadius"))
+    {
+        radius = GetEntPropFloat(entity, Prop_Send, "m_DmgRadius");
+        hasRadius = true;
+    }
+
+    // Scale the projectile's actual CS:S defaults rather than relying on fixed
+    // constants. This runs next-frame, after weapon throw code finalized its fields.
+    if (hasDamage && damage > 0.0)
+    {
+        if (HasEntProp(entity, Prop_Data, "m_flDamage"))
+            SetEntPropFloat(entity, Prop_Data, "m_flDamage",
+                damage * RSP_DEMOLITION_DAMAGE_MULTIPLIER);
+        else
+            SetEntPropFloat(entity, Prop_Send, "m_flDamage",
+                damage * RSP_DEMOLITION_DAMAGE_MULTIPLIER);
+    }
+
+    if (hasRadius && radius > 0.0)
+    {
+        if (HasEntProp(entity, Prop_Data, "m_DmgRadius"))
+            SetEntPropFloat(entity, Prop_Data, "m_DmgRadius",
+                radius * RSP_DEMOLITION_RADIUS_MULTIPLIER);
+        else
+            SetEntPropFloat(entity, Prop_Send, "m_DmgRadius",
+                radius * RSP_DEMOLITION_RADIUS_MULTIPLIER);
+    }
 }
 
 public void Hook_SmokeGrenadeProjectileSpawnPost(int entity)
@@ -11492,18 +11530,19 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float move[
         {
             buttons &= ~IN_JUMP;
             commandChanged = true;
-        }
 
-        // A grounded target must remain fully settled while jump is held/spammed.
-        if ((GetEntityFlags(client) & FL_ONGROUND) != 0 &&
-            HasEntProp(client, Prop_Data, "m_vecVelocity"))
-        {
-            float groundVelocity[3];
-            GetEntPropVector(client, Prop_Data, "m_vecVelocity", groundVelocity);
-            if (groundVelocity[2] != 0.0)
+            // Cancel only the residual grounded jump impulse. Do not touch vertical
+            // velocity while the target is walking normally or is airborne.
+            if ((GetEntityFlags(client) & FL_ONGROUND) != 0 &&
+                HasEntProp(client, Prop_Data, "m_vecVelocity"))
             {
-                groundVelocity[2] = 0.0;
-                SetEntPropVector(client, Prop_Data, "m_vecVelocity", groundVelocity);
+                float groundVelocity[3];
+                GetEntPropVector(client, Prop_Data, "m_vecVelocity", groundVelocity);
+                if (groundVelocity[2] > 0.0)
+                {
+                    groundVelocity[2] = 0.0;
+                    SetEntPropVector(client, Prop_Data, "m_vecVelocity", groundVelocity);
+                }
             }
         }
     }
@@ -21447,11 +21486,11 @@ int StripWeaponsFromPlayer(int target, int owner)
         !IsPlayerAlive(target) || !IsPlayerAlive(owner))
         return 0;
 
-    float origin[3], angles[3], forward[3], right[3];
+    float origin[3], angles[3], forward[3], right[3], up[3];
     float velocity[3] = {0.0, 0.0, 0.0};
     GetClientAbsOrigin(owner, origin);
     GetClientEyeAngles(owner, angles);
-    GetAngleVectors(angles, forward, right, NULL_VECTOR);
+    GetAngleVectors(angles, forward, right, up);
 
     forward[2] = 0.0;
     right[2] = 0.0;
@@ -22409,7 +22448,7 @@ bool IsValidPlayingClient(int client)
 // 6.0.68: Removes the custom Tesla corpse replica/finalization path. Tesla deaths use the same native env_entity_dissolver system as before, with its fade timeline scaled to 4x; other RSP dissolve effects keep their existing 2x timeline. All gameplay/placement changes from 6.0.67 remain.
 // 6.0.67: Balances Inventor Tesla to 350 HP and a 15% headshot chance for every player target, including Juggernaut; Steel Head still blocks headshot damage. Visible hostile players take priority over enemy Teslas, which remain fallback targets. Makes buildable placement less restrictive on uneven ground and near nearby objects; sequences round-start notices as owner power, target list after 0.1 s, teammate roster after 0.2 s. Tesla dissolve used a hidden prop_ragdoll fallback to retain a corpse after the native effect.
 // 6.0.66: Centers the ambient point_tesla emitter on the exact X/Y antenna firing origin. Tesla dissolves use a longer native electrical effect; this version uses the native fade lifecycle without a custom corpse replica. Other dissolve causes are unchanged.
-// 7.9.2: Concussion displays the rolled 15-30% chance and applies the CS:S flash fade plus native distance-tier DSP deafening. Spectator now blocks chat/radio/voice and sounds; its 25-second cooldown starts after exit. Freezing Ammo blocks all active inputs and suppresses owned sounds/voice. Grounder removes grounded micro-jump impulses. Demolition scales the projectile’s actual engine damage/radius defaults by x1.5/x3 after creation. Heist drops the same primary/pistol entities at the activator; fixed SDKHooks_DropWeapon void usage so successful drops are counted and cooldown is applied.
+// 7.9.2: Concussion displays the rolled 15-30% chance and applies the CS:S flash fade plus native distance-tier DSP deafening. Spectator blocks movement actions other than flight, chat/radio/voice and owned sounds; its 25-second cooldown starts after exit. Freezing Ammo blocks active inputs and suppresses owned sounds/voice. Grounder cancels only spammed grounded jump impulses. Demolition preserves synchronous HE ownership attribution and scales the projectile's engine damage/radius defaults by x1.5/x3 on the next frame. Heist drops the same primary/pistol entities beside the activator; fixes SDKHooks_DropWeapon void usage so successful drops are counted and cooldown is applied.
 // 6.0.65: Tesla-caused deaths used a very long native electrical dissolve timeline to try to keep the corpse for the whole round; this approach is replaced in 6.0.66/6.0.67 and 6.0.68 by a finite fade timeline.
 // 6.0.64: Improves Inventor Tesla combat: player armor is bypassed, player targets have a 15% headshot chance (50% against Juggernaut) with 4x headshot damage and headshot killfeed, body hits are blocked by Juggernaut, enemy Teslas target and damage one another without headshots, and Thorns reflects Tesla damage onto the attacking turret instead of its owner. Slightly thickens the zigzag beam and centers/raises the ambient Tesla arc.
 // 6.0.63: Removes Silenced Ammo and Silenced Steps from the selectable pool, power enum, names/descriptions, sound hooks, weapon-sound precache, and related helpers. No other power mechanics are intentionally changed.
